@@ -1,0 +1,110 @@
+// prisma/schema.prisma
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relasi
+  registrations   Registration[]
+  verifiedDocs    Document[]     @relation("VerifiedDocs")
+  createdStudents Student[]      @relation("CreatedStudents")
+}
+
+model Registration {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  status    RegStatus @default(PENDING)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Data diri calon siswa
+  fullName     String
+  nisn         String
+  nik          String
+  birthPlace   String
+  birthDate    DateTime
+  address      String
+  province     String?
+  city         String
+  phone        String
+  socialMedia  String?
+  schoolOrigin String
+  npsn         String
+  gradYear     Int
+  siblingInfo  String
+  parentStatus String
+  familyStatus String
+  livingWith   String
+  socialAid    String?
+
+  // Relasi
+  user      User       @relation(fields: [userId], references: [id])
+  documents Document[]
+}
+
+model Document {
+  id             Int       @id @default(autoincrement())
+  registrationId Int
+  fileUrl        String
+  originalName   String
+  mimeType       String
+  size           Int
+  status         DocStatus @default(PENDING)
+  verifiedBy     Int? // adminId
+  createdAt      DateTime  @default(now())
+
+  // Relasi
+  registration Registration @relation(fields: [registrationId], references: [id])
+  admin        User?        @relation("VerifiedDocs", fields: [verifiedBy], references: [id])
+}
+
+model Student {
+  id           Int      @id @default(autoincrement())
+  fullName     String
+  nisn         String
+  nik          String
+  birthPlace   String
+  birthDate    DateTime
+  address      String
+  province     String?
+  city         String
+  phone        String
+  schoolOrigin String
+  npsn         String
+  gradYear     Int
+  createdAt    DateTime @default(now())
+  createdBy    Int // adminId
+
+  // Relasi
+  admin User @relation("CreatedStudents", fields: [createdBy], references: [id])
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum RegStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum DocStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}

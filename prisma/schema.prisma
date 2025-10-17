@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -10,49 +8,193 @@ generator client {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  role      Role     @default(USER)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  password     String
+  role         Role     @default(USER)
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  // Relasi
   registrations   Registration[]
   verifiedDocs    Document[]     @relation("VerifiedDocs")
   createdStudents Student[]      @relation("CreatedStudents")
+  verifiedRegs    Registration[] @relation("VerifiedRegistrations")
+  notifications   Notification[]
+  AuditLog        AuditLog[]
 }
 
 model Registration {
-  id        Int       @id @default(autoincrement())
-  userId    Int
-  status    RegStatus @default(PENDING)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  status          String   @default("PENDING")
+  progress        String?  @default("DRAFT") // 🆕 Tambahkan ini
+  stage           String?  @default("PENDAFTARAN")
+  selectionResult String?
+  adminNote       String?
+  verifiedBy      Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  // Data diri calon siswa
-  fullName     String
-  nisn         String
-  nik          String
-  birthPlace   String
-  birthDate    DateTime
-  address      String
-  province     String?
-  city         String
-  phone        String
-  socialMedia  String?
-  schoolOrigin String
-  npsn         String
-  gradYear     Int
-  siblingInfo  String
-  parentStatus String
-  familyStatus String
-  livingWith   String
-  socialAid    String?
+  // Relasi ke user & admin
+  user  User  @relation(fields: [userId], references: [id])
+  admin User? @relation("VerifiedRegistrations", fields: [verifiedBy], references: [id])
 
-  // Relasi
-  user      User       @relation(fields: [userId], references: [id])
-  documents Document[]
+  // Relasi ke semua section
+  participant   ParticipantData?
+  achievements  AchievementData?
+  parents       ParentData?
+  housing       HousingData?
+  health        HealthData?
+  consent       ConsentData?
+  documents     Document[]
+  notifications Notification[]
+}
+
+model Notification {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  registrationId Int?
+  title          String
+  message        String
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id])
+  registration Registration? @relation(fields: [registrationId], references: [id])
+}
+
+model ParticipantData {
+  id              Int      @id @default(autoincrement())
+  registrationId  Int      @unique
+  fullName        String
+  nik             String
+  nisn            String
+  address         String
+  birthPlace      String
+  birthDate       DateTime
+  schoolName      String
+  gradYear        Int
+  npsn            String
+  childOrder      String
+  parentCondition String
+  socialAid       String
+  familyStatus    String
+  livingWith      String
+  phone           String
+  socialMedia     String?
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+}
+
+model AchievementData {
+  id             Int     @id @default(autoincrement())
+  registrationId Int     @unique
+  math3          Float?
+  math4          Float?
+  math5          Float?
+  indo3          Float?
+  indo4          Float?
+  indo5          Float?
+  english3       Float?
+  english4       Float?
+  english5       Float?
+  ipa3           Float?
+  ipa4           Float?
+  ipa5           Float?
+  ips3           Float?
+  ips4           Float?
+  ips5           Float?
+  pai3           Float?
+  pai4           Float?
+  pai5           Float?
+  foreignLang    String?
+  hafalan        String?
+  achievements   String?
+  organizations  String?
+  dream          String?
+  hobby          String?
+  uniqueness     String?
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+}
+
+model ParentData {
+  id                 Int      @id @default(autoincrement())
+  registrationId     Int      @unique
+  fatherName         String
+  fatherEdu          String?
+  fatherPhone        String?
+  fatherJob          String?
+  fatherAddress      String?
+  fatherWorkAddress  String?
+  fatherDependents   Int?
+  fatherHope         String?
+  motherName         String
+  motherEdu          String?
+  motherPhone        String?
+  motherJob          String?
+  motherAddress      String?
+  motherWorkAddress  String?
+  motherDependents   Int?
+  motherHope         String?
+  guardianName       String?
+  guardianRelation   String?
+  guardianJob        String?
+  guardianEmail      String?
+  guardianDependents Int?
+  guardianAddress    String?
+  incomeSource       String?
+  relativeName       String?
+  relativePhone      String?
+  relativeRelation   String?
+  sourceInfo         String?
+  hasScholarSibling  Boolean?
+  relativeEmail      String?
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+}
+
+model HousingData {
+  id                Int     @id @default(autoincrement())
+  registrationId    Int     @unique
+  yearAcquired      Int?
+  landArea          Float?
+  ownershipStatus   String?
+  houseCondition    String?
+  vehicle           String?
+  property          String?
+  vehicleOwnership  String?
+  propertyOwnership String?
+  electricity       String?
+  waterSource       String?
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+}
+
+model HealthData {
+  id                 Int      @id @default(autoincrement())
+  registrationId     Int      @unique
+  height             Float?
+  weight             Float?
+  infectiousDiseases String?
+  allergies          String?
+  underTreatment     Boolean?
+  bloodType          String?
+  colorBlind         Boolean?
+  smoker             Boolean?
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+}
+
+model ConsentData {
+  id             Int     @id @default(autoincrement())
+  registrationId Int     @unique
+  statement1     Boolean
+  statement2     Boolean
+  statement3     Boolean
+
+  registration Registration @relation(fields: [registrationId], references: [id])
 }
 
 model Document {
@@ -63,10 +205,9 @@ model Document {
   mimeType       String
   size           Int
   status         DocStatus @default(PENDING)
-  verifiedBy     Int? // adminId
+  verifiedBy     Int?
   createdAt      DateTime  @default(now())
 
-  // Relasi
   registration Registration @relation(fields: [registrationId], references: [id])
   admin        User?        @relation("VerifiedDocs", fields: [verifiedBy], references: [id])
 }
@@ -86,10 +227,23 @@ model Student {
   npsn         String
   gradYear     Int
   createdAt    DateTime @default(now())
-  createdBy    Int // adminId
+  createdBy    Int
 
-  // Relasi
   admin User @relation("CreatedStudents", fields: [createdBy], references: [id])
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int? // <--- tambahkan ini
+  action    String
+  details   String?
+  method    String
+  path      String
+  ip        String
+  userAgent String
+  timestamp DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
 }
 
 enum Role {
@@ -103,8 +257,28 @@ enum RegStatus {
   REJECTED
 }
 
+enum FormProgress {
+  DRAFT // sedang diisi (autosave)
+  SUBMITTED // sudah dikirim user (siap diverifikasi)
+  VERIFIED // diverifikasi admin
+}
+
 enum DocStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum SelectionStage {
+  PENDAFTARAN
+  SELEKSI_BERKAS
+  TES_AKADEMIK
+  PSIKOTEST
+  WAWANCARA
+  PENGUMUMAN
+}
+
+enum SelectionResult {
+  LULUS
+  TIDAK_LULUS
 }

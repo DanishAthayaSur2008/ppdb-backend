@@ -7,7 +7,7 @@ import morgan from "morgan";
 import path from "path";
 import { PrismaClient } from "@prisma/client";
 
-// 🧩 Import routes
+
 import authRoutes from "./routes/auth";
 import registrationRoutes from "./routes/registrations";
 import adminRoutes from "./routes/admin";
@@ -20,13 +20,10 @@ dotenv.config();
 const app = express();
 const prisma = new PrismaClient();
 
-// ==============================
-// 🔧 Middleware dasar
-// ==============================
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 🛡️ Security headers
 app.use(
   helmet({
     contentSecurityPolicy: false,
@@ -34,9 +31,7 @@ app.use(
   })
 );
 
-// ==============================
-// 🌍 CORS Configuration (User + Admin Frontend)
-// ==============================
+
 const allowedOrigins = [
   "http://localhost:3000",                // Local development
   "https://ppdb-user.vercel.app",         // Frontend user

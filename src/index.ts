@@ -7,7 +7,6 @@ import morgan from "morgan";
 import path from "path";
 import { PrismaClient } from "@prisma/client";
 
-
 import authRoutes from "./routes/auth";
 import registrationRoutes from "./routes/registrations";
 import adminRoutes from "./routes/admin";
@@ -20,7 +19,6 @@ dotenv.config();
 const app = express();
 const prisma = new PrismaClient();
 
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -31,12 +29,11 @@ app.use(
   })
 );
 
-
 const allowedOrigins = [
-  "http://localhost:3000",                // Local development
-  "https://ppdb-user.vercel.app",         // Frontend user
-  "https://ppdb-admin.vercel.app",        // Frontend admin
-  "https://ppdb.example.com",             // Optional custom domain
+  "http://localhost:3000", // Local development
+  "https://ppdb-user.vercel.app", // Frontend user
+  "https://ppdb-admin.vercel.app", // Frontend admin
+  "https://ppdb.example.com", // Optional custom domain
 ];
 
 app.use(
@@ -105,9 +102,11 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-
+// ==============================
+// 🩺 Health Check & Root Routes
+// ==============================
 app.get("/", (req: Request, res: Response) => {
-  res.send("✅ PPDB Backend is running securely and optimized! horeee");
+  res.send("✅ PPDB Backend is running securely and optimized! 🚀");
 });
 
 app.get("/api/health", async (req: Request, res: Response) => {
@@ -115,25 +114,40 @@ app.get("/api/health", async (req: Request, res: Response) => {
     await prisma.$queryRaw`SELECT 1`; // test database connection
     res.json({ status: "ok", database: "connected" });
   } catch (err) {
-    res.status(500).json({ status: "error", message: "Database not reachable" });
+    res
+      .status(500)
+      .json({ status: "error", message: "Database not reachable" });
   }
 });
 
-
+// ==============================
+// ⚠️ Global Error Handler
+// ==============================
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("Global Error:", err);
   res.status(500).json({ error: "Terjadi kesalahan internal pada server." });
 });
 
-
+// ==============================
+// 🧹 Graceful Shutdown
+// ==============================
 process.on("SIGTERM", async () => {
   console.log("🧹 Closing Prisma connection...");
   await prisma.$disconnect();
   process.exit(0);
 });
 
+// ==============================
+// 🚀 Server Initialization (Railway Ready)
+// ==============================
+const PORT = process.env.PORT;
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT} (${process.env.NODE_ENV || "development"})`);
+if (!PORT) {
+  throw new Error("❌ Environment variable PORT is not defined!");
+}
+
+app.listen(Number(PORT), "0.0.0.0", () => {
+  console.log(
+    `✅ Server running on port ${PORT} (${process.env.NODE_ENV || "development"})`
+  );
 });

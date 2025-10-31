@@ -1,6 +1,4 @@
-// ===========================================================
-// 🚀 PPDB Backend Preflight Full Test + Auto-Clean (Final)
-// ===========================================================
+
 const fetch = require("node-fetch");
 const fs = require("fs");
 const FormData = require("form-data");
@@ -30,9 +28,7 @@ async function jsonFetch(url, options = {}) {
   let registrationId = null;
   let adminToken = null;
 
-  // =========================================================
-  // 0️⃣ Auto-clean old data (delete test user if exists)
-  // =========================================================
+  
   if (AUTO_CLEAN) {
     console.log("🧹 Auto-clean old test data...");
     try {

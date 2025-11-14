@@ -24,19 +24,7 @@ async function writeAudit(userId: number | null, action: string, details?: strin
   }
 }
 
-/**
- * Utility: cek apakah formData sudah lengkap (basic)
- * Kita harapkan frontend mengirim objek formData dengan properti-section berikut:
- * - personal
- * - prestasi
- * - orangtua
- * - rumah
- * - kesehatan
- * - upload (obj berisi docType => file metadata/reference)
- * - pernyataan
- *
- * Kamu bisa sesuaikan nama key sesuai kontrak frontend.
- */
+
 function findMissingSections(formData: any) {
   const required = [
     "personal",

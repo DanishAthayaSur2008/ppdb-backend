@@ -1,245 +1,310 @@
+// src/routes/admin.ts
 import { Router, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import {
+  PrismaClient,
+  RegStatus,
+  FormProgress,
+  SelectionStage,
+  SelectionResult,
+  DocStatus,
+} from "@prisma/client";
 import { authenticateToken, requireRole, AuthRequest } from "../middleware/auth";
 
 const prisma = new PrismaClient();
 const router = Router();
 
-// 🔒 Middleware khusus admin
+/* ============================================================
+   🔒 Middleware khusus ADMIN
+============================================================ */
 router.use(authenticateToken);
 router.use(requireRole("ADMIN"));
 
-/**
- * 🧾 Utility: Catat aktivitas admin ke AuditLog
- */
-async function logAdminAction(req: AuthRequest, action: string, targetId?: number) {
+/* ============================================================
+   Utility: Simpan Audit Log
+============================================================ */
+async function logAdmin(req: AuthRequest, action: string, details?: string) {
   try {
     await prisma.auditLog.create({
       data: {
         userId: req.user?.userId ?? null,
         action,
-        details: targetId ? `Target ID: ${targetId}` : null,
-        method: req.method,
-        path: req.originalUrl,
+        details,
         ip: req.ip || "unknown",
-        userAgent: req.headers["user-agent"] || "unknown",
-        timestamp: new Date(),
       },
     });
-
-    console.log(
-      `[AuditLog] userId=${req.user?.userId ?? "unknown"} melakukan aksi: ${action} (${targetId ?? "-"})`
-    );
   } catch (err) {
-    console.error("Gagal mencatat audit log admin:", err);
+    console.warn("Audit log failed:", err);
   }
 }
 
+/* ============================================================
+   Tahap Seleksi Berurutan
+============================================================ */
+const STAGE_ORDER: SelectionStage[] = [
+  "PENDAFTARAN",
+  "SELEKSI_BERKAS",
+  "TES_AKADEMIK",
+  "WAWANCARA",
+  "PSIKOTEST",
+  "HOME_VISIT",
+  "PENGUMUMAN",
+];
 
+function getNextStage(current: SelectionStage): SelectionStage | null {
+  const idx = STAGE_ORDER.indexOf(current);
+  return idx >= 0 && idx < STAGE_ORDER.length - 1
+    ? STAGE_ORDER[idx + 1]
+    : null;
+}
 
-/**
- * 📋 GET daftar registrasi (filter, search, pagination)
- */
+/* ============================================================
+   📋 GET daftar registrasi (filter, paging)
+============================================================ */
 router.get("/registrations", async (req: AuthRequest, res: Response) => {
   try {
     const { status, q, page = "1", pageSize = "20" } = req.query;
+
     const where: any = {};
 
-    if (status) where.status = status;
+    if (status && Object.values(RegStatus).includes(status as RegStatus)) {
+      where.status = status;
+    }
+
     if (q) {
       where.OR = [
-        { participant: { fullName: { contains: q as string, mode: "insensitive" } } },
-        { participant: { nisn: { contains: q as string } } },
-        { participant: { nik: { contains: q as string } } },
+        { participantName: { contains: q as string, mode: "insensitive" } },
+        { nisn: { contains: q as string, mode: "insensitive" } },
+        {
+          user: {
+            email: { contains: q as string, mode: "insensitive" },
+          },
+        },
       ];
     }
 
     const total = await prisma.registration.count({ where });
 
-    const registrations = await prisma.registration.findMany({
+    const data = await prisma.registration.findMany({
       where,
-      include: {
-        user: true,
-        participant: true,
-        achievements: true,
-        parents: true,
-        housing: true,
-        health: true,
-        consent: true,
-        documents: true,
-      },
+      include: { user: true, documents: true },
       skip: (Number(page) - 1) * Number(pageSize),
       take: Number(pageSize),
       orderBy: { createdAt: "desc" },
     });
 
-    await logAdminAction(req, "Melihat daftar registrasi");
-    res.json({ total, page, pageSize, data: registrations });
-  } catch (error) {
-    console.error("Error get registrations:", error);
-    res.status(500).json({ error: "Gagal mengambil daftar registrasi" });
+    await logAdmin(req, "ADMIN_LIST_REGISTRATIONS");
+    res.json({ total, page, pageSize, data });
+  } catch (err) {
+    res.status(500).json({ error: "Gagal mengambil data registrasi" });
   }
 });
 
-/**
- * 📄 GET detail registrasi lengkap
- */
+/* ============================================================
+   📄 GET detail registrasi
+============================================================ */
 router.get("/registrations/:id", async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
     const registration = await prisma.registration.findUnique({
       where: { id },
-      include: {
-        user: true,
-        participant: true,
-        achievements: true,
-        parents: true,
-        housing: true,
-        health: true,
-        consent: true,
-        documents: true,
-      },
+      include: { user: true, documents: true },
     });
 
-    if (!registration) return res.status(404).json({ error: "Registrasi tidak ditemukan" });
-    await logAdminAction(req, "Melihat detail registrasi", id);
+    if (!registration)
+      return res.status(404).json({ error: "Registrasi tidak ditemukan" });
+
+    await logAdmin(req, "ADMIN_VIEW_REGISTRATION", `id=${id}`);
     res.json(registration);
-  } catch (error) {
-    console.error("Error get detail:", error);
-    res.status(500).json({ error: "Gagal mengambil detail registrasi" });
+  } catch (err) {
+    res.status(500).json({ error: "Gagal mengambil detail" });
   }
 });
 
-/**
- * ✅ PATCH verifikasi registrasi + beri catatan
- */
+/* ============================================================
+   🔍 PATCH Verifikasi Berkas (Step 1)
+   - VERIFIED = diterima
+   - REJECTED = ditolak + unlock
+============================================================ */
 router.patch("/registrations/:id/verify", async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
     const { status, adminNote } = req.body;
 
-    if (!["PENDING", "VERIFIED", "REJECTED"].includes(status)) {
+    if (![RegStatus.VERIFIED, RegStatus.REJECTED].includes(status)) {
       return res.status(400).json({ error: "Status tidak valid" });
     }
 
-    // 🔎 Ambil data registrasi
-    const registration = await prisma.registration.findUnique({
+    const reg = await prisma.registration.findUnique({
       where: { id },
       include: { user: true },
     });
 
-    if (!registration) {
-      return res.status(404).json({ error: "Registrasi tidak ditemukan" });
-    }
+    if (!reg) return res.status(404).json({ error: "Tidak ditemukan" });
 
-    // 🔄 Tentukan progress baru
-    let newProgress = registration.progress;
-    if (status === "REJECTED") {
-      newProgress = "DRAFT"; // auto-unlock agar user bisa revisi
-    } else if (status === "VERIFIED") {
-      newProgress = "SUBMITTED"; // tetap terkunci
-    }
+    const newProgress =
+      status === RegStatus.VERIFIED ? FormProgress.SUBMITTED : FormProgress.DRAFT;
 
-    // 🧾 Update status & progress
+    // UPDATE REGISTRATION
     const updated = await prisma.registration.update({
       where: { id },
       data: {
         status,
         progress: newProgress,
-        adminNote: adminNote ?? null,
         verifiedBy: req.user!.userId,
+        adminNote: adminNote ?? null,
       },
-      include: { user: true, participant: true },
     });
 
-    // 🔔 Kirim notifikasi ke user
+    // UPDATE DOCUMENT STATUS (sinkronisasi)
+    if (status === RegStatus.REJECTED) {
+      await prisma.document.updateMany({
+        where: { registrationId: id },
+        data: { status: DocStatus.REJECTED },
+      });
+    }
+
+    // NOTIFIKASI
     await prisma.notification.create({
       data: {
         userId: updated.userId,
         title:
-          status === "VERIFIED"
-            ? "✅ Pendaftaran Diverifikasi"
-            : status === "REJECTED"
-            ? "❌ Pendaftaran Ditolak"
-            : "⏳ Pendaftaran Ditunda",
+          status === RegStatus.VERIFIED
+            ? "Pendaftaran Berhasil Diverifikasi"
+            : "Pendaftaran Ditolak",
         message:
-          status === "REJECTED"
-            ? `Data pendaftaranmu ditolak. ${adminNote ? "Catatan: " + adminNote : "Silakan perbaiki dan kirim ulang."}`
-            : status === "VERIFIED"
-            ? "Selamat! Pendaftaranmu telah diverifikasi dan diterima."
-            : "Pendaftaranmu sedang ditinjau. Harap menunggu.",
+          status === RegStatus.VERIFIED
+            ? "Selamat! Berkas pendaftaranmu telah sesuai."
+            : `Pendaftaran ditolak. ${adminNote ? `Catatan: ${adminNote}` : ""}`,
       },
     });
 
-    // 🧠 Audit log admin
-    await logAdminAction(req, `Verifikasi registrasi (${status})`, id);
-
-    res.json({ message: "Status registrasi diperbarui", registration: updated });
-  } catch (error: any) {
-    console.error("Error verify registration:", error);
-    res.status(500).json({ error: "Gagal memperbarui status registrasi" });
+    await logAdmin(req, "ADMIN_VERIFY_REGISTRATION", `id=${id}`);
+    res.json({ message: "Status verifikasi diperbarui", registration: updated });
+  } catch (err) {
+    res.status(500).json({ error: "Gagal memverifikasi" });
   }
 });
 
-
-/**
- * 🧩 PATCH tahap seleksi (stage) + hasil penilaian (LULUS / TIDAK_LULUS)
- */
+/* ============================================================
+   🧩 PATCH Tahap Seleksi (Step 2-6)
+   Admin tidak boleh skip atau mundur.
+============================================================ */
 router.patch("/registrations/:id/stage", async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
-    const { stage, result, note } = req.body;
+    const { result, note } = req.body;
 
-    if (
-      ![
-        "PENDAFTARAN",
-        "SELEKSI_BERKAS",
-        "TES_AKADEMIK",
-        "PSIKOTEST",
-        "WAWANCARA",
-        "PENGUMUMAN",
-      ].includes(stage)
-    ) {
-      return res.status(400).json({ error: "Tahap seleksi tidak valid" });
+    const reg = await prisma.registration.findUnique({
+      where: { id },
+      include: { user: true },
+    });
+
+    if (!reg) return res.status(404).json({ error: "Registrasi tidak ditemukan" });
+
+    let currentStage = reg.stage;
+    let nextStage = getNextStage(currentStage);
+
+    if (!nextStage)
+      return res.status(400).json({ error: "Tahap akhir sudah dicapai" });
+
+    // VALIDASI HASIL
+    if (![SelectionResult.LULUS, SelectionResult.TIDAK_LULUS].includes(result)) {
+      return res.status(400).json({ error: "Result tidak valid" });
     }
 
-    if (result && !["LULUS", "TIDAK_LULUS"].includes(result)) {
-      return res.status(400).json({ error: "Hasil seleksi tidak valid" });
-    }
+    let updatedStage = currentStage;
+    let updatedResult: SelectionResult = result;
 
-    const registration = await prisma.registration.update({
+    if (result === SelectionResult.LULUS) updatedStage = nextStage;
+
+    // UPDATE
+    const updated = await prisma.registration.update({
       where: { id },
       data: {
-        stage,
-        selectionResult: result ?? null,
+        stage: updatedStage,
+        selectionResult: updatedResult,
         adminNote: note ?? undefined,
         verifiedBy: req.user!.userId,
       },
-      include: { user: true, participant: true },
     });
 
+    // NOTIFIKASI FORMAT SESUAI PERMINTAANMU
     await prisma.notification.create({
       data: {
-        userId: registration.userId,
-        title: `Tahap seleksi diperbarui: ${stage}`,
+        userId: updated.userId,
+        title:
+          result === SelectionResult.LULUS
+            ? `Selamat! Kamu lolos ${currentStage}`
+            : `Mohon maaf kamu tidak lolos ${currentStage}`,
         message:
-          result === "LULUS"
-            ? `Selamat! Kamu lolos ke tahap ${stage} berikutnya.`
-            : result === "TIDAK_LULUS"
-            ? `Maaf, kamu belum lolos pada tahap ${stage}.`
-            : `Kamu sekarang berada di tahap ${stage}. Harap menunggu informasi selanjutnya.`,
+          result === SelectionResult.LULUS
+            ? `Tahap kamu telah berubah menjadi ${updatedStage}`
+            : `Kamu tidak lolos tahap ${currentStage}.`,
       },
     });
 
-    await logAdminAction(req, "Update tahap seleksi", id);
-    res.json({ message: "Tahap seleksi diperbarui", registration });
-  } catch (error) {
-    console.error("Error update stage:", error);
+    await logAdmin(req, "ADMIN_UPDATE_STAGE", `id=${id}`);
+    res.json({ message: "Tahap seleksi diperbarui", registration: updated });
+  } catch (err) {
     res.status(500).json({ error: "Gagal memperbarui tahap seleksi" });
   }
 });
 
+/* ============================================================
+   🏁 PATCH Finalisasi Seleksi (Step 7)
+============================================================ */
+router.patch("/registrations/:id/final", async (req: AuthRequest, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const { finalResult, note } = req.body;
 
+    if (![SelectionResult.LULUS, SelectionResult.TIDAK_LULUS].includes(finalResult)) {
+      return res.status(400).json({ error: "Final result tidak valid" });
+    }
+
+    const reg = await prisma.registration.findUnique({ where: { id } });
+    if (!reg) return res.status(404).json({ error: "Tidak ditemukan" });
+
+    if (reg.stage !== "PENGUMUMAN") {
+      return res
+        .status(400)
+        .json({ error: "Hanya bisa finalisasi pada tahap PENGUMUMAN" });
+    }
+
+    const updated = await prisma.registration.update({
+      where: { id },
+      data: {
+        selectionResult: finalResult,
+        adminNote: note ?? undefined,
+        verifiedBy: req.user!.userId,
+      },
+    });
+
+    // NOTIFIKASI FINAL
+    await prisma.notification.create({
+      data: {
+        userId: updated.userId,
+        title:
+          finalResult === "LULUS"
+            ? "SELAMAT! Kamu Dinyatakan LULUS"
+            : "PENGUMUMAN: Kamu Tidak Lulus",
+        message:
+          finalResult === "LULUS"
+            ? "Kamu dinyatakan lulus seleksi PPDB SMK TI Bazma."
+            : "Mohon maaf kamu tidak lulus. Tetap semangat!",
+      },
+    });
+
+    await logAdmin(req, "ADMIN_FINAL_RESULT", `id=${id}`);
+    res.json({ message: "Finalisasi berhasil", registration: updated });
+  } catch (err) {
+    res.status(500).json({ error: "Gagal melakukan finalisasi" });
+  }
+});
+
+/* ============================================================
+   📊 Statistik
+============================================================ */
 router.get("/stats", async (req: AuthRequest, res: Response) => {
   try {
     const [total, pending, verified, rejected] = await Promise.all([
@@ -249,60 +314,37 @@ router.get("/stats", async (req: AuthRequest, res: Response) => {
       prisma.registration.count({ where: { status: "REJECTED" } }),
     ]);
 
-    const byStage = await prisma.registration.groupBy({
-      by: ["stage"],
-      _count: { stage: true },
+    const byProvince = await prisma.registration.groupBy({
+      by: ["participantName"],
+      _count: { participantName: true },
     });
 
-    await logAdminAction(req, "Melihat statistik pendaftar");
-    res.json({
-      total,
-      pending,
-      verified,
-      rejected,
-      byStage,
-    });
-  } catch (error) {
-    console.error("Error get stats:", error);
+    await logAdmin(req, "ADMIN_VIEW_STATS");
+    res.json({ total, pending, verified, rejected, byProvince });
+  } catch (err) {
     res.status(500).json({ error: "Gagal mengambil statistik" });
   }
 });
 
-
-router.get("/logs", async (req: AuthRequest, res: Response) => {
-  try {
-    const logs = await prisma.auditLog.findMany({
-      orderBy: { timestamp: "desc" },
-      take: 100,
-    });
-    res.json(logs);
-  } catch (error) {
-    res.status(500).json({ error: "Gagal mengambil log aktivitas admin" });
-  }
-});
-
-// ========================================================
-// 🧹 Admin Cleanup Endpoint (hapus user test otomatis)
-// ========================================================
-router.delete("/cleanup-test-data", requireRole("ADMIN"), async (req: AuthRequest, res: Response) => {
+/* ============================================================
+   🧹 Hapus Data Test (Dev-only)
+============================================================ */
+router.delete("/cleanup-test-data", async (req: AuthRequest, res: Response) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Email diperlukan" });
 
-    // Hapus user & semua registrasi terkait
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.json({ message: "User tidak ditemukan, skip" });
+    if (!user) return res.json({ message: "User tidak ditemukan" });
 
     await prisma.registration.deleteMany({ where: { userId: user.id } });
     await prisma.notification.deleteMany({ where: { userId: user.id } });
     await prisma.user.delete({ where: { id: user.id } });
 
-    res.json({ message: `Data user ${email} berhasil dihapus` });
+    res.json({ message: `Data test untuk ${email} dihapus` });
   } catch (err) {
-    console.error("Cleanup error:", err);
-    res.status(500).json({ error: "Gagal menghapus data test" });
+    res.status(500).json({ error: "Cleanup gagal" });
   }
 });
-
 
 export default router;

@@ -3,19 +3,19 @@
   "version": "1.0.0",
   "main": "index.js",
   "type": "commonjs",
- "scripts": {
-  "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-  "build": "tsc",
-  "start": "npm run build && node dist/index.js",
-  "seed": "ts-node prisma/seed.ts",
-  "migrate": "npx prisma migrate deploy"
-},
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
+    "start": "npm run build && node dist/index.js",
+    "seed": "ts-node prisma/seed.ts",
+    "migrate": "npx prisma migrate deploy"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@prisma/client": "^6.17.1",
+    "@prisma/client": "^6.18.0",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
@@ -27,6 +27,8 @@
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "node-fetch": "^2.7.0",
+    "nodemailer": "^7.0.10",
+    "validator": "^13.15.20",
     "zod": "^4.1.11"
   },
   "devDependencies": {
@@ -39,12 +41,23 @@
     "@types/morgan": "^1.9.10",
     "@types/multer": "^2.0.0",
     "@types/node": "^24.5.2",
+    "@types/node-fetch": "^2.6.13",
+    "@types/nodemailer": "^7.0.3",
+    "@types/validator": "^13.15.4",
     "axios": "^1.12.2",
     "form-data": "^4.0.4",
     "nodemon": "^3.1.10",
-    "prisma": "^6.17.1",
+    "prisma": "^6.19.0",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DanishAthayaSur2008/ppdb-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DanishAthayaSur2008/ppdb-backend/issues"
+  },
+  "homepage": "https://github.com/DanishAthayaSur2008/ppdb-backend#readme"
 }

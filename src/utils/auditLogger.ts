@@ -1,32 +1,13 @@
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
-/**
- * Catat aktivitas penting ke database.
- * @param req Request express (agar bisa ambil IP, path, dll)
- * @param userId ID user (boleh null)
- * @param action Nama aksi (contoh: "UPLOAD_DOCUMENT", "VERIFY_REGISTRATION")
- * @param details Deskripsi tambahan (opsional)
- */
-export async function logAudit(
-  req: any,
-  userId: number | null,
-  action: string,
-  details?: string
-): Promise<void> {
+export async function logAudit(req: any, userId: number | null, action: string, details?: string) {
   try {
+    const ip = req.ip || req.headers["x-forwarded-for"] || "unknown";
     await prisma.auditLog.create({
-      data: {
-        userId: userId ?? null,
-        action,
-        details: details ?? null,
-        method: req.method || "UNKNOWN",
-        path: req.originalUrl || "-",
-        ip: req.ip || "unknown",
-        userAgent: req.headers["user-agent"] || "unknown",
-      },
+      data: { userId, registrationId: req.params?.id ? Number(req.params.id) : null, action, details, ip },
     });
   } catch (err) {
-    console.error("Gagal mencatat audit log:", err);
+    console.warn("⚠️ Failed to log audit:", (err as any).message);
   }
 }

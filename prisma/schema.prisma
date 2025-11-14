@@ -1,250 +1,15 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
-
-model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
-  password     String
-  role         Role     @default(USER)
-  refreshToken String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  registrations   Registration[]
-  verifiedDocs    Document[]     @relation("VerifiedDocs")
-  createdStudents Student[]      @relation("CreatedStudents")
-  verifiedRegs    Registration[] @relation("VerifiedRegistrations")
-  notifications   Notification[]
-  AuditLog        AuditLog[]
-}
-
-model Registration {
-  id              Int      @id @default(autoincrement())
-  userId          Int
-  status          String   @default("PENDING")
-  progress        String?  @default("DRAFT") // 🆕 Tambahkan ini
-  stage           String?  @default("PENDAFTARAN")
-  selectionResult String?
-  adminNote       String?
-  verifiedBy      Int?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  // Relasi ke user & admin
-  user  User  @relation(fields: [userId], references: [id])
-  admin User? @relation("VerifiedRegistrations", fields: [verifiedBy], references: [id])
-
-  // Relasi ke semua section
-  participant   ParticipantData?
-  achievements  AchievementData?
-  parents       ParentData?
-  housing       HousingData?
-  health        HealthData?
-  consent       ConsentData?
-  documents     Document[]
-  notifications Notification[]
-}
-
-model Notification {
-  id             Int      @id @default(autoincrement())
-  userId         Int
-  registrationId Int?
-  title          String
-  message        String
-  isRead         Boolean  @default(false)
-  createdAt      DateTime @default(now())
-
-  user         User          @relation(fields: [userId], references: [id])
-  registration Registration? @relation(fields: [registrationId], references: [id])
-}
-
-model ParticipantData {
-  id              Int      @id @default(autoincrement())
-  registrationId  Int      @unique
-  fullName        String
-  nik             String
-  nisn            String
-  address         String
-  birthPlace      String
-  birthDate       DateTime
-  schoolName      String
-  gradYear        Int
-  npsn            String
-  childOrder      String
-  parentCondition String
-  socialAid       String
-  familyStatus    String
-  livingWith      String
-  phone           String
-  socialMedia     String?
-
-  registration Registration @relation(fields: [registrationId], references: [id])
-}
-
-model AchievementData {
-  id             Int     @id @default(autoincrement())
-  registrationId Int     @unique
-  math3          Float?
-  math4          Float?
-  math5          Float?
-  indo3          Float?
-  indo4          Float?
-  indo5          Float?
-  english3       Float?
-  english4       Float?
-  english5       Float?
-  ipa3           Float?
-  ipa4           Float?
-  ipa5           Float?
-  ips3           Float?
-  ips4           Float?
-  ips5           Float?
-  pai3           Float?
-  pai4           Float?
-  pai5           Float?
-  foreignLang    String?
-  hafalan        String?
-  achievements   String?
-  organizations  String?
-  dream          String?
-  hobby          String?
-  uniqueness     String?
-
-  registration Registration @relation(fields: [registrationId], references: [id])
-}
-
-model ParentData {
-  id                 Int      @id @default(autoincrement())
-  registrationId     Int      @unique
-  fatherName         String
-  fatherEdu          String?
-  fatherPhone        String?
-  fatherJob          String?
-  fatherAddress      String?
-  fatherWorkAddress  String?
-  fatherDependents   Int?
-  fatherHope         String?
-  motherName         String
-  motherEdu          String?
-  motherPhone        String?
-  motherJob          String?
-  motherAddress      String?
-  motherWorkAddress  String?
-  motherDependents   Int?
-  motherHope         String?
-  guardianName       String?
-  guardianRelation   String?
-  guardianJob        String?
-  guardianEmail      String?
-  guardianDependents Int?
-  guardianAddress    String?
-  incomeSource       String?
-  relativeName       String?
-  relativePhone      String?
-  relativeRelation   String?
-  sourceInfo         String?
-  hasScholarSibling  Boolean?
-  relativeEmail      String?
-
-  registration Registration @relation(fields: [registrationId], references: [id])
-}
-
-model HousingData {
-  id                Int     @id @default(autoincrement())
-  registrationId    Int     @unique
-  yearAcquired      Int?
-  landArea          Float?
-  ownershipStatus   String?
-  houseCondition    String?
-  vehicle           String?
-  property          String?
-  vehicleOwnership  String?
-  propertyOwnership String?
-  electricity       String?
-  waterSource       String?
-
-  registration Registration @relation(fields: [registrationId], references: [id])
-}
-
-model HealthData {
-  id                 Int      @id @default(autoincrement())
-  registrationId     Int      @unique
-  height             Float?
-  weight             Float?
-  infectiousDiseases String?
-  allergies          String?
-  underTreatment     Boolean?
-  bloodType          String?
-  colorBlind         Boolean?
-  smoker             Boolean?
-
-  registration Registration @relation(fields: [registrationId], references: [id])
-}
-
-model ConsentData {
-  id             Int     @id @default(autoincrement())
-  registrationId Int     @unique
-  statement1     Boolean
-  statement2     Boolean
-  statement3     Boolean
-
-  registration Registration @relation(fields: [registrationId], references: [id])
-}
-
-model Document {
-  id             Int       @id @default(autoincrement())
-  registrationId Int
-  fileUrl        String
-  originalName   String
-  mimeType       String
-  size           Int
-  status         DocStatus @default(PENDING)
-  verifiedBy     Int?
-  createdAt      DateTime  @default(now())
-
-  registration Registration @relation(fields: [registrationId], references: [id])
-  admin        User?        @relation("VerifiedDocs", fields: [verifiedBy], references: [id])
-}
-
-model Student {
-  id           Int      @id @default(autoincrement())
-  fullName     String
-  nisn         String
-  nik          String
-  birthPlace   String
-  birthDate    DateTime
-  address      String
-  province     String?
-  city         String
-  phone        String
-  schoolOrigin String
-  npsn         String
-  gradYear     Int
-  createdAt    DateTime @default(now())
-  createdBy    Int
-
-  admin User @relation("CreatedStudents", fields: [createdBy], references: [id])
-}
-
-model AuditLog {
-  id        Int      @id @default(autoincrement())
-  userId    Int? // <--- tambahkan ini
-  action    String
-  details   String?
-  method    String
-  path      String
-  ip        String
-  userAgent String
-  timestamp DateTime @default(now())
-
-  user User? @relation(fields: [userId], references: [id])
-}
+// =======================
+// ENUMS
+// =======================
 
 enum Role {
   USER
@@ -253,14 +18,30 @@ enum Role {
 
 enum RegStatus {
   PENDING
-  VERIFIED
   REJECTED
+  VERIFIED
 }
 
 enum FormProgress {
-  DRAFT // sedang diisi (autosave)
-  SUBMITTED // sudah dikirim user (siap diverifikasi)
-  VERIFIED // diverifikasi admin
+  DRAFT
+  SUBMITTED
+  LOCKED
+}
+
+enum SelectionStage {
+  PENDAFTARAN
+  SELEKSI_BERKAS
+  TES_AKADEMIK
+  WAWANCARA
+  PSIKOTEST
+  HOME_VISIT
+  PENGUMUMAN
+}
+
+enum SelectionResult {
+  LULUS
+  TIDAK_LULUS
+  DALAM_PROSES
 }
 
 enum DocStatus {
@@ -269,16 +50,130 @@ enum DocStatus {
   REJECTED
 }
 
-enum SelectionStage {
-  PENDAFTARAN
-  SELEKSI_BERKAS
-  TES_AKADEMIK
-  PSIKOTEST
-  WAWANCARA
-  PENGUMUMAN
+enum DocType {
+  RAPORT // Dokumen Nilai Raport Semester 3–5
+  SKTM // Surat Keterangan Tidak Mampu
+  FOLLOW_IG // Screenshot bukti follow IG
+  VIDEO_REELS // Screenshot/link video reels
+  SURAT_REKOMENDASI // Surat rekomendasi guru SMP
+  AKTE_KELAHIRAN // Scan/foto Akte kelahiran
+  KARTU_KELUARGA // Scan/foto Kartu Keluarga
+  PAS_FOTO // Pas foto 3x4 terbaru
+  BPJS_KIS // Scan/foto BPJS/KIS (jika ada)
+  KIP // Scan/foto KIP (jika ada)
+  FOTO_RUMAH_TAMPAK // Foto keseluruhan tampak rumah
+  FOTO_KAMAR_TIDUR // Foto kamar tidur
+  FOTO_DAPUR_KAMAR_MANDI // Foto dapur/kamar mandi
 }
 
-enum SelectionResult {
-  LULUS
-  TIDAK_LULUS
+enum NotificationType {
+  SYSTEM
+  ADMIN_NOTE
+  STATUS_UPDATE
+  VERIFICATION
+}
+
+// =======================
+// MODELS
+// =======================
+
+model User {
+  id                Int       @id @default(autoincrement())
+  email             String    @unique
+  password          String
+  role              Role      @default(USER)
+  refreshToken      String?
+  resetToken        String?
+  resetTokenExpires DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relasi
+  registrations         Registration[]
+  verifiedRegistrations Registration[] @relation("VerifiedByAdmin")
+  verifiedDocuments     Document[]     @relation("DocumentVerifier")
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+}
+
+// =======================
+// FORM PENDAFTARAN
+// =======================
+
+model Registration {
+  id              Int              @id @default(autoincrement())
+  userId          Int
+  status          RegStatus        @default(PENDING)
+  progress        FormProgress     @default(DRAFT)
+  stage           SelectionStage   @default(PENDAFTARAN)
+  selectionResult SelectionResult? @default(DALAM_PROSES)
+  adminNote       String?
+  verifiedBy      Int?
+  formData        Json
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  participantName String? // Nama peserta (diambil dari formData.personal.namaLengkap)
+  nisn            String? // NISN (diambil dari formData.personal.nisn)
+
+  user      User       @relation(fields: [userId], references: [id])
+  admin     User?      @relation("VerifiedByAdmin", fields: [verifiedBy], references: [id])
+  documents Document[]
+  auditLogs AuditLog[]
+}
+
+// =======================
+// DOKUMEN / BERKAS UPLOAD
+// =======================
+
+model Document {
+  id             Int       @id @default(autoincrement())
+  registrationId Int
+  docType        DocType
+  fileName       String
+  originalName   String
+  mimeType       String
+  size           Int
+  status         DocStatus @default(PENDING)
+  note           String?
+  verifiedBy     Int?
+  createdAt      DateTime  @default(now())
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+  admin        User?        @relation("DocumentVerifier", fields: [verifiedBy], references: [id])
+
+  @@unique([registrationId, docType]) // ✅ Hanya satu file per jenis dokumen
+}
+
+// =======================
+// NOTIFIKASI
+// =======================
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  userId    Int
+  title     String
+  message   String
+  type      NotificationType @default(SYSTEM)
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// =======================
+// AUDIT LOG
+// =======================
+
+model AuditLog {
+  id             Int      @id @default(autoincrement())
+  userId         Int?
+  registrationId Int?
+  action         String
+  details        String?
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  user         User?         @relation(fields: [userId], references: [id])
+  registration Registration? @relation(fields: [registrationId], references: [id])
 }

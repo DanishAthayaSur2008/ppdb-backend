@@ -1,331 +1,208 @@
-import { Router, Response } from "express";
-import { PrismaClient, DocStatus } from "@prisma/client";
-import { FormProgress, RegStatus } from "@prisma/client";
-import { authenticateToken, AuthRequest, requireRole } from "../middleware/auth";
+import express, { Request, Response } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { PrismaClient, DocStatus, DocType } from "@prisma/client";
+import { authenticateToken, AuthRequest, requireRole } from "../middleware/auth";
 
+const router = express.Router();
 const prisma = new PrismaClient();
-const router = Router();
 
-
-
-const uploadFolder = path.join(__dirname, "../../uploads");
-if (!fs.existsSync(uploadFolder)) {
-  fs.mkdirSync(uploadFolder, { recursive: true });
-}
-
-// ========================================================
-// 🧰 Multer Setup (validasi file + penamaan unik)
-// ========================================================
+// ========================
+// 🔧 Konfigurasi Multer
+// ========================
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadFolder);
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, "../../uploads/documents");
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
   },
-  filename: function (req, file, cb) {
+  filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    const safeName = file.originalname.replace(/\s+/g, "_");
-    cb(null, uniqueSuffix + "_" + safeName);
+    cb(null, uniqueSuffix + "-" + file.originalname.replace(/\s+/g, "_"));
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 3 * 1024 * 1024 }, // 3MB max per file
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = [".jpg", ".jpeg", ".png", ".pdf"];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (!allowedTypes.includes(ext)) {
-      return cb(new Error("Hanya file JPG, PNG, dan PDF yang diperbolehkan!"));
-    }
-    cb(null, true);
-  },
+  limits: { fileSize: 10 * 1024 * 1024 }, // Maks 10MB per file
 });
 
-// ========================================================
-// 📌 1️⃣ Upload Dokumen Baru (User)
-// ========================================================
+// ========================
+// 📤 Upload / Update Dokumen
+// ========================
 router.post(
-  "/:registrationId/upload",
+  "/upload/:registrationId",
   authenticateToken,
   upload.single("file"),
   async (req: AuthRequest, res: Response) => {
     try {
       const { registrationId } = req.params;
+      const { docType } = req.body;
+      const file = req.file;
 
-      if (!req.file) {
-        return res.status(400).json({ error: "File tidak ditemukan" });
+      if (!file) return res.status(400).json({ error: "File belum diunggah" });
+      if (!docType) return res.status(400).json({ error: "Jenis dokumen (docType) wajib diisi" });
+
+      // Validasi enum docType
+      if (!Object.values(DocType).includes(docType as DocType)) {
+        return res.status(400).json({ error: `Jenis dokumen ${docType} tidak valid.` });
       }
 
-      // Cek kepemilikan registrasi
-      const reg = await prisma.registration.findUnique({
-      where: { id: Number(registrationId) },
-        });
-
-      if (!reg) {
-      return res.status(404).json({ error: "Registrasi tidak ditemukan" });
-      }
-
-      if (reg.userId !== req.user!.userId) {
-        return res.status(403).json({ error: "Tidak boleh upload dokumen untuk registrasi ini" });
-      }
-
-if (reg.progress === FormProgress.SUBMITTED || reg.status === RegStatus.VERIFIED) {
-  return res.status(403).json({
-    error: "Pendaftaran sudah dikirim, tidak bisa upload dokumen baru.",
-  });
-}
-
-      const document = await prisma.document.create({
-        data: {
-          registrationId: Number(registrationId),
-          fileUrl: `/uploads/${req.file.filename}`,
-          originalName: req.file.originalname,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          status: "PENDING",
-        },
-      });
-
-      // Kirim notifikasi ke admin (opsional)
-      await prisma.notification.create({
-        data: {
-          userId: reg.userId,
-          title: "Upload Dokumen Baru",
-          message: `Dokumen baru diunggah: ${req.file.originalname}`,
-        },
-      });
-
-      res.json({ message: "Upload berhasil", document });
-    } catch (error: any) {
-      console.error("Upload error:", error);
-      res.status(500).json({ error: "Gagal upload dokumen", detail: error.message });
-    }
-  }
-);
-
-// ========================================================
-// 📌 6️⃣ Upload Banyak Foto Rumah (max 7 file, hanya untuk "foto_rumah")
-// ========================================================
-router.post(
-  "/:registrationId/multi-upload", // ⚠️ ubah agar cocok dengan preflightFull.cjs
-  authenticateToken,
-  upload.array("files", 7),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const { registrationId } = req.params;
-
-      const reg = await prisma.registration.findUnique({
+      // Pastikan user hanya bisa upload dokumen miliknya
+      const registration = await prisma.registration.findUnique({
         where: { id: Number(registrationId) },
       });
 
-      if (!reg || reg.userId !== req.user!.userId) {
-        return res.status(403).json({ error: "Tidak punya izin untuk upload" });
+      if (!registration || registration.userId !== req.user!.userId) {
+        return res.status(403).json({ error: "Tidak punya akses ke pendaftaran ini" });
       }
 
-      if (reg.progress === "SUBMITTED" || reg.status === "VERIFIED") {
-        return res.status(403).json({ error: "Pendaftaran terkunci, tidak bisa upload." });
-      }
-
-      const files = req.files as Express.Multer.File[];
-      if (!files || files.length === 0) {
-        return res.status(400).json({ error: "Tidak ada file yang diunggah" });
-      }
-
-      // Simpan semua file dan kembalikan daftar hasil
-      const uploaded = await Promise.all(
-        files.map((file) =>
-          prisma.document.create({
-            data: {
-              registrationId: Number(registrationId),
-              fileUrl: `/uploads/${file.filename}`,
-              originalName: file.originalname,
-              mimeType: file.mimetype,
-              size: file.size,
-              status: "PENDING",
-            },
-          })
-        )
-      );
-
-      // Buat notifikasi
-      await prisma.notification.create({
-        data: {
-          userId: reg.userId,
-          title: "Upload Foto Rumah",
-          message: `Berhasil mengunggah ${uploaded.length} foto rumah.`,
+      // Cek apakah dokumen jenis itu sudah ada
+      const existing = await prisma.document.findUnique({
+        where: {
+          registrationId_docType: {
+            registrationId: Number(registrationId),
+            docType: docType as DocType,
+          },
         },
       });
 
-      res.json({
-        message: "Upload banyak foto berhasil",
-        uploaded,
-        count: uploaded.length,
+      // Jika sudah ada → update & hapus file lama
+      if (existing) {
+        const oldPath = path.join(__dirname, "../../uploads/documents", existing.fileName);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+
+        const updated = await prisma.document.update({
+          where: {
+            registrationId_docType: {
+              registrationId: Number(registrationId),
+              docType: docType as DocType,
+            },
+          },
+          data: {
+            fileName: file.filename,
+            originalName: file.originalname,
+            mimeType: file.mimetype,
+            size: file.size,
+            status: DocStatus.PENDING,
+            note: null,
+            verifiedBy: null,
+          },
+        });
+
+        return res.json({ message: "Dokumen berhasil diperbarui", document: updated });
+      }
+
+      // Jika belum ada → buat dokumen baru
+      const newDoc = await prisma.document.create({
+        data: {
+          registrationId: Number(registrationId),
+          docType: docType as DocType,
+          fileName: file.filename,
+          originalName: file.originalname,
+          mimeType: file.mimetype,
+          size: file.size,
+        },
       });
-    } catch (error: any) {
-      console.error("Multi-upload error:", error);
-      res.status(500).json({
-        error: "Gagal upload banyak file",
-        detail: error.message,
-      });
+
+      return res.status(201).json({ message: "Dokumen berhasil diunggah", document: newDoc });
+    } catch (err) {
+      console.error("Upload Document Error:", err);
+      return res.status(500).json({ error: "Gagal mengunggah dokumen" });
     }
   }
 );
 
-
-// ========================================================
-// 📌 2️⃣ Ambil Semua Dokumen Milik Registrasi (User)
-// ========================================================
-router.get("/:registrationId", authenticateToken, async (req: AuthRequest, res: Response) => {
-  try {
-    const { registrationId } = req.params;
-
-    const reg = await prisma.registration.findUnique({
-      where: { id: Number(registrationId) },
-    });
-
-    if (!reg || reg.userId !== req.user!.userId) {
-      return res.status(403).json({ error: "Tidak boleh melihat dokumen registrasi ini" });
-    }
-
-    const documents = await prisma.document.findMany({
-      where: { registrationId: Number(registrationId) },
-    });
-
-    res.json(documents);
-  } catch (error: any) {
-    res.status(500).json({ error: "Gagal mengambil dokumen", detail: error.message });
-  }
-});
-
-// ========================================================
-// 📌 3️⃣ Verifikasi Dokumen (Admin Only)
-// ========================================================
-router.patch("/:id/verify", authenticateToken, requireRole("ADMIN"), async (req: AuthRequest, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    if (!["APPROVED", "REJECTED"].includes(status)) {
-      return res.status(400).json({ error: "Status tidak valid" });
-    }
-
-    const document = await prisma.document.findUnique({
-      where: { id: Number(id) },
-      include: { registration: true },
-    });
-
-    if (!document) {
-      return res.status(404).json({ error: "Dokumen tidak ditemukan" });
-    }
-
-    const updatedDoc = await prisma.document.update({
-      where: { id: Number(id) },
-      data: {
-        status: status as DocStatus,
-        verifiedBy: req.user!.userId,
-      },
-    });
-
-    // 🔔 Kirim notifikasi ke user
-    await prisma.notification.create({
-      data: {
-        userId: document.registration.userId,
-        title: "Status Dokumen Diperbarui",
-        message:
-          status === "APPROVED"
-            ? `Selamat! Dokumen '${document.originalName}' telah disetujui.`
-            : `Dokumen '${document.originalName}' ditolak. Silakan perbaiki dan upload ulang.`,
-      },
-    });
-
-    res.json({ message: "Dokumen diverifikasi", document: updatedDoc });
-  } catch (error: any) {
-    console.error("Verifikasi error:", error);
-    res.status(500).json({ error: "Gagal verifikasi dokumen", detail: error.message });
-  }
-});
-
-// ========================================================
-// 📌 4️⃣ Reupload Dokumen (User mengganti file lama yang ditolak)
-// ========================================================
-router.patch(
-  "/:documentId/reupload",
+// ========================
+// 📥 Get Semua Dokumen User
+// ========================
+router.get(
+  "/:registrationId",
   authenticateToken,
-  upload.single("file"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { documentId } = req.params;
+      const { registrationId } = req.params;
 
-      const document = await prisma.document.findUnique({
-        where: { id: Number(documentId) },
-        include: { registration: true },
+      const registration = await prisma.registration.findUnique({
+        where: { id: Number(registrationId) },
       });
 
-      if (!document) {
-        return res.status(404).json({ error: "Dokumen tidak ditemukan" });
-      }
-      
-      if (document.registration.progress === "SUBMITTED" || document.registration.status === "VERIFIED") {
-      return res.status(403).json({
-      error: "Tidak bisa mengganti dokumen karena pendaftaran sudah dikirim.",
-      });
-    }
-
-
-      if (document.registration.userId !== req.user!.userId) {
-        return res.status(403).json({ error: "Tidak memiliki izin untuk mengganti dokumen ini" });
+      if (!registration || registration.userId !== req.user!.userId) {
+        return res.status(403).json({ error: "Tidak punya akses ke pendaftaran ini" });
       }
 
-      if (!req.file) {
-        return res.status(400).json({ error: "File baru tidak ditemukan" });
-      }
-
-      // Hapus file lama dari folder uploads
-      const oldPath = path.join(uploadFolder, path.basename(document.fileUrl));
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-
-      // Update dokumen
-      const updatedDoc = await prisma.document.update({
-        where: { id: Number(documentId) },
-        data: {
-          fileUrl: `/uploads/${req.file.filename}`,
-          originalName: req.file.originalname,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          status: "PENDING",
-          verifiedBy: null, // reset status verifikasi
-        },
+      const docs = await prisma.document.findMany({
+        where: { registrationId: Number(registrationId) },
+        orderBy: { createdAt: "asc" },
       });
 
-      // 🔔 Kirim notifikasi ke admin
-      await prisma.notification.create({
-        data: {
-          userId: document.registration.userId,
-          title: "Reupload Dokumen",
-          message: `Pengguna telah mengunggah ulang dokumen '${document.originalName}'.`,
-        },
-      });
-
-      res.json({ message: "Reupload berhasil", document: updatedDoc });
-    } catch (error: any) {
-      console.error("Reupload error:", error);
-      res.status(500).json({ error: "Gagal mengganti dokumen", detail: error.message });
+      return res.json(docs);
+    } catch (err) {
+      console.error("Get Document Error:", err);
+      return res.status(500).json({ error: "Gagal mengambil data dokumen" });
     }
   }
 );
 
-// ========================================================
-// 📌 5️⃣ Error Handler (Multer & umum)
-// ========================================================
-router.use((err: any, req: any, res: any, next: any) => {
-  if (err instanceof multer.MulterError) {
-    return res.status(400).json({ error: "Ukuran file terlalu besar (max 3MB)" });
-  } else if (err.message.includes("JPG") || err.message.includes("PNG") || err.message.includes("PDF")) {
-    return res.status(400).json({ error: err.message });
+// ========================
+// 🧾 Admin Verifikasi Dokumen
+// ========================
+router.patch(
+  "/verify/:id",
+  authenticateToken,
+  requireRole,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { status, note } = req.body;
+
+      if (!Object.values(DocStatus).includes(status as DocStatus)) {
+        return res.status(400).json({ error: "Status dokumen tidak valid" });
+      }
+
+      const updated = await prisma.document.update({
+        where: { id: Number(id) },
+        data: {
+          status: status as DocStatus,
+          note,
+          verifiedBy: req.user!.userId,
+        },
+      });
+
+      return res.json({ message: "Status dokumen diperbarui", document: updated });
+    } catch (err) {
+      console.error("Verify Document Error:", err);
+      return res.status(500).json({ error: "Gagal memperbarui status dokumen" });
+    }
   }
-  res.status(500).json({ error: "Server error", detail: err.message });
-});
+);
+
+// ========================
+// 🗑️ Hapus Dokumen (Admin)
+// ========================
+router.delete(
+  "/:id",
+  authenticateToken,
+  requireRole,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const doc = await prisma.document.findUnique({ where: { id: Number(id) } });
+
+      if (!doc) return res.status(404).json({ error: "Dokumen tidak ditemukan" });
+
+      const filePath = path.join(__dirname, "../../uploads/documents", doc.fileName);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+      await prisma.document.delete({ where: { id: Number(id) } });
+
+      return res.json({ message: "Dokumen berhasil dihapus" });
+    } catch (err) {
+      console.error("Delete Document Error:", err);
+      return res.status(500).json({ error: "Gagal menghapus dokumen" });
+    }
+  }
+);
 
 export default router;

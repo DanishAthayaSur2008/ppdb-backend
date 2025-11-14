@@ -1,7 +1,9 @@
+// src/routes/auth.ts
 import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
+import validator from "validator";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -32,6 +34,16 @@ router.post("/register", async (req, res) => {
   try {
     const { email, password, role } = req.body;
 
+    // 🔎 Validasi email
+    if (!email || !validator.isEmail(email)) {
+      return res.status(400).json({ message: "Format email tidak valid" });
+    }
+
+    // validasi panjang password minimal 8
+    if (!password || password.length < 8) {
+      return res.status(400).json({ message: "Password minimal 8 karakter" });
+    }
+
     // cek kalau email sudah dipakai
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -46,7 +58,7 @@ router.post("/register", async (req, res) => {
       data: {
         email,
         password: hashed,
-        role: role || "USER", // default USER
+        role: role || "USER",
       },
     });
 
@@ -61,6 +73,10 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email dan password wajib diisi" });
+    }
+
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) return res.status(400).json({ message: "User tidak ditemukan" });
 
@@ -71,15 +87,12 @@ router.post("/login", async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // simpan refreshToken di DB
     await prisma.user.update({
       where: { id: user.id },
       data: { refreshToken },
     });
 
-    res.json({ 
-      accessToken, 
-      refreshToken, });
+    res.json({ accessToken, refreshToken });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -91,11 +104,9 @@ router.post("/refresh", async (req, res) => {
     const { refreshToken } = req.body;
     if (!refreshToken) return res.sendStatus(401);
 
-    // cek refresh token di DB
     const user = await prisma.user.findFirst({ where: { refreshToken } });
     if (!user) return res.sendStatus(403);
 
-    // verify refresh token
     jwt.verify(refreshToken, REFRESH_TOKEN_SECRET, (err: any) => {
       if (err) return res.sendStatus(403);
 

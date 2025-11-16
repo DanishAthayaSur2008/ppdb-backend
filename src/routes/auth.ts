@@ -17,7 +17,7 @@ const generateAccessToken = (user: any) => {
   return jwt.sign(
     { userId: user.id, role: user.role },
     ACCESS_TOKEN_SECRET,
-    { expiresIn: "15m" }
+    { expiresIn: "1d" }
   );
 };
 
@@ -32,7 +32,7 @@ const generateRefreshToken = (user: any) => {
 // ================== REGISTER ==================
 router.post("/register", async (req, res) => {
   try {
-    const { email, password, role } = req.body;
+    const { fullName, email, password, role } = req.body;
 
     // 🔎 Validasi email
     if (!email || !validator.isEmail(email)) {

@@ -240,6 +240,152 @@ router.get("/:id", authenticateToken, async (req: AuthRequest, res: Response) =>
 });
 
 /**
+ * GET /api/registrations/me
+ * Ambil registration milik user yang sedang login
+ */
+router.get("/me", authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+
+    const registration = await prisma.registration.findFirst({
+      where: { userId },
+      include: {
+        documents: true,   // kalau kamu mau lihat dokumen (opsional)
+      }
+    });
+
+    // jika belum punya
+    if (!registration) {
+      return res.json({ hasRegistration: false });
+    }
+
+    // siapkan data respon ringkas
+    const response: any = {
+      hasRegistration: true,
+      id: registration.id,
+      status: registration.status,
+      progress: registration.progress,
+      adminNote: registration.adminNote,
+    };
+
+    // jika form sudah SUBMITTED → kirim formData
+    if (registration.progress === "SUBMITTED") {
+      response.formData = registration.formData;
+    }
+
+    return res.json(response);
+
+  } catch (err: any) {
+    console.error("Error get my registration:", err);
+    res.status(500).json({ error: "Gagal mengambil registrasi Anda" });
+  }
+});
+
+
+/**
+ * GET /api/registrations/:id/stages
+ * Ambil semua status tahapan pendaftaran untuk user/admin
+ */
+router.get("/:id/stages", authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const requester = req.user!;
+
+    // ambil registration untuk cek kepemilikan
+    const registration = await prisma.registration.findUnique({
+      where: { id },
+      select: { userId: true }
+    });
+
+    if (!registration) {
+      return res.status(404).json({ error: "Registrasi tidak ditemukan" });
+    }
+
+    // hanya pemilik atau admin yang boleh lihat stages
+    if (requester.userId !== registration.userId && requester.role !== "ADMIN") {
+      return res.status(403).json({ error: "Tidak punya akses" });
+    }
+
+    // ambil semua stage
+    const stages = await prisma.registrationStage.findMany({
+      where: { registrationId: id },
+      orderBy: { id: "asc" }
+    });
+
+    res.json(stages);
+
+  } catch (err: any) {
+    console.error("Error get stages:", err);
+    res.status(500).json({ error: "Gagal mengambil daftar tahapan" });
+  }
+});
+
+/**
+ * PATCH /api/registrations/:id/stages
+ * Admin-only: update status 1 tahap pendaftaran
+ */
+router.patch("/:id/stages", authenticateToken, requireRole("ADMIN"), async (req: AuthRequest, res: Response) => {
+  try {
+    const registrationId = Number(req.params.id);
+    const { stageName, status, notes } = req.body;
+
+    // validasi input
+    const validStages = [
+      "seleksi_berkas",
+      "tes_akademik",
+      "wawancara",
+      "psikotest",
+      "home_visit",
+      "pengumuman",
+    ];
+
+    if (!validStages.includes(stageName)) {
+      return res.status(400).json({ error: "Nama tahap tidak valid" });
+    }
+
+    if (!["pending", "lolos", "tidak_lolos"].includes(status)) {
+      return res.status(400).json({ error: "Status tahap tidak valid" });
+    }
+
+    // cek registration
+    const registration = await prisma.registration.findUnique({
+      where: { id: registrationId },
+    });
+
+    if (!registration) {
+      return res.status(404).json({ error: "Registrasi tidak ditemukan" });
+    }
+
+    // update stage
+    const updatedStage = await prisma.registrationStage.updateMany({
+      where: { registrationId, stageName },
+      data: {
+        status,
+        notes: notes ?? null,
+        updatedBy: req.user!.userId,
+      },
+    });
+
+    // kirim notifikasi ke user
+    await prisma.notification.create({
+      data: {
+        userId: registration.userId,
+        title: `Status Tahap: ${stageName}`,
+        message: `Status tahap "${stageName}" diperbarui menjadi "${status}".`,
+      },
+    });
+
+    res.json({ message: "Tahap diperbarui", stage: updatedStage });
+
+  } catch (err: any) {
+    console.error("Error update stage:", err);
+    res.status(500).json({ error: "Gagal memperbarui tahap" });
+  }
+});
+
+
+
+/**
  * GET /api/registrations
  * List (ADMIN only) — dengan pagination & filter sederhana
  */
@@ -316,6 +462,19 @@ router.patch("/:id/status", authenticateToken, requireRole("ADMIN"), async (req:
       },
       include: { user: true },
     });
+    
+    // === Buat 7 tahap pendaftaran otomatis ===
+await prisma.registrationStage.createMany({
+  data: [
+    { registrationId: updated.id, stageName: "seleksi_berkas", status: "pending" },
+    { registrationId: updated.id, stageName: "tes_akademik", status: "pending" },
+    { registrationId: updated.id, stageName: "wawancara", status: "pending" },
+    { registrationId: updated.id, stageName: "psikotest", status: "pending" },
+    { registrationId: updated.id, stageName: "home_visit", status: "pending" },
+    { registrationId: updated.id, stageName: "pengumuman", status: "pending" },
+  ],
+});
+
 
     // create notification for user
     await prisma.notification.create({

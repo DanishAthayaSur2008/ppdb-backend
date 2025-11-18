@@ -117,10 +117,24 @@ model Registration {
   participantName String? // Nama peserta (diambil dari formData.personal.namaLengkap)
   nisn            String? // NISN (diambil dari formData.personal.nisn)
 
-  user      User       @relation(fields: [userId], references: [id])
-  admin     User?      @relation("VerifiedByAdmin", fields: [verifiedBy], references: [id])
+  user      User                @relation(fields: [userId], references: [id])
+  admin     User?               @relation("VerifiedByAdmin", fields: [verifiedBy], references: [id])
+  stages    RegistrationStage[]
   documents Document[]
   auditLogs AuditLog[]
+}
+
+model RegistrationStage {
+  id             Int      @id @default(autoincrement())
+  registrationId Int
+  stageName      String // ex: "seleksi_berkas", "tes_akademik", ...
+  status         String // "pending" | "lolos" | "tidak_lolos"
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  updatedBy      Int?
+
+  registration Registration @relation(fields: [registrationId], references: [id])
 }
 
 // =======================

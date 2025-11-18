@@ -39,8 +39,9 @@ function deleteFile(filePath: string | null) {
    🧩 VALID docType checker
 ============================================================ */
 function isValidDocumentType(value: string): value is DocType {
-  return Object.values(DocumentType).includes(value as DocType);
-}   
+  return Object.values(DocType).includes(value as DocType);
+}
+
 
 /* ============================================================
    📤 POST Upload Dokumen (User)

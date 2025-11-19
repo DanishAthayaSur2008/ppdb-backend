@@ -3,32 +3,89 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
 export interface AuthRequest extends Request {
-  user?: { userId: number; role: string };
+  user?: {
+    userId: number;
+    role: "USER" | "ADMIN";
+  };
 }
 
-const ACCESS_TOKEN_SECRET = process.env.JWT_SECRET || "supersecret";
+const ACCESS_SECRET = process.env.ACCESS_TOKEN_SECRET || "dev-secret";
 
-export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers["authorization"] || req.headers["Authorization"];
-  const token = typeof authHeader === "string" && authHeader.startsWith("Bearer ")
-    ? authHeader.split(" ")[1]
-    : (req.cookies && (req.cookies as any).token) || null;
-
-  if (!token) return res.status(401).json({ error: "Unauthorized" });
-
+// ===============================
+// Middleware Authenticate JWT
+// ===============================
+export function authenticateToken(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
   try {
-    const payload = jwt.verify(token, ACCESS_TOKEN_SECRET) as any;
-    req.user = { userId: payload.userId, role: payload.role };
-    next();
+    const authHeader = req.headers["authorization"];
+    const token = authHeader?.split(" ")[1];
+
+    if (!token) {
+      return res.status(401).json({ error: "Token tidak ditemukan" });
+    }
+
+    jwt.verify(token, ACCESS_SECRET, (err: any, decoded: any) => {
+      if (err) {
+        return res.status(401).json({ error: "Token tidak valid atau kadaluarsa" });
+      }
+
+      req.user = {
+        userId: decoded.userId,
+        role: decoded.role,
+      };
+
+      next();
+    });
   } catch (err) {
-    return res.status(401).json({ error: "Token invalid or expired" });
+    console.error("Auth error:", err);
+    return res.status(500).json({ error: "Gagal memverifikasi token" });
   }
 }
 
+// ===============================
+// Middleware Require Role
+// ===============================
 export function requireRole(role: "ADMIN" | "USER") {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
-    if (req.user.role !== role) return res.status(403).json({ error: "Forbidden" });
-    next();
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Tidak terautentikasi" });
+      }
+
+      if (req.user.role !== role) {
+        return res.status(403).json({ error: "Akses ditolak" });
+      }
+
+      next();
+    } catch (err) {
+      console.error("Role check error:", err);
+      return res.status(500).json({ error: "Gagal memproses role" });
+    }
+  };
+}
+
+// ===============================
+// Middleware Require Role Multiple
+// ex: requireRoles(["ADMIN", "USER"])
+// ===============================
+export function requireRoles(roles: ("USER" | "ADMIN")[]) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Tidak terautentikasi" });
+      }
+
+      if (!roles.includes(req.user.role)) {
+        return res.status(403).json({ error: "Akses ditolak" });
+      }
+
+      next();
+    } catch (err) {
+      console.error("Role array check error:", err);
+      return res.status(500).json({ error: "Gagal memproses role" });
+    }
   };
 }

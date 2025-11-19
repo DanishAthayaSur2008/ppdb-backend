@@ -1,51 +1,34 @@
+// src/middleware/auth.ts
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
-// ================= CONFIG =================
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
-
-// ================= TYPES ==================
-export interface JwtPayload {
-  userId: number;
-  role: "USER" | "ADMIN"; // bisa ditambah role lain kalau perlu
-}
-
-// extend express Request supaya ada field user
 export interface AuthRequest extends Request {
-  user?: JwtPayload;
+  user?: { userId: number; role: string };
 }
 
+const ACCESS_TOKEN_SECRET = process.env.JWT_SECRET || "supersecret";
 
-export function authenticateToken(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1]; // format "Bearer TOKEN"
+export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
+  const authHeader = req.headers["authorization"] || req.headers["Authorization"];
+  const token = typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+    ? authHeader.split(" ")[1]
+    : (req.cookies && (req.cookies as any).token) || null;
 
-  if (!token) {
-    return res.status(401).json({ error: "Unauthorized: Token tidak ada" });
-  }
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
 
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(403).json({ error: "Forbidden: Token tidak valid" });
-    }
-    req.user = decoded as JwtPayload; // simpan user ke request
+  try {
+    const payload = jwt.verify(token, ACCESS_TOKEN_SECRET) as any;
+    req.user = { userId: payload.userId, role: payload.role };
     next();
-  });
+  } catch (err) {
+    return res.status(401).json({ error: "Token invalid or expired" });
+  }
 }
 
-
-export function requireRole(role: "USER" | "ADMIN") {
+export function requireRole(role: "ADMIN" | "USER") {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return res.status(401).json({ error: "Unauthorized: User tidak terautentikasi" });
-    }
-    if (req.user.role !== role) {
-      return res.status(403).json({ error: `Forbidden: Hanya ${role} yang boleh mengakses` });
-    }
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    if (req.user.role !== role) return res.status(403).json({ error: "Forbidden" });
     next();
   };
 }

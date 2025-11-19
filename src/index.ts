@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import path from "path";
+import dotenv from "dotenv";
 
 import authRoutes from "./routes/auth";
 import authResetRoutes from "./routes/authReset";
@@ -13,6 +14,7 @@ import notificationRoutes from "./routes/notification";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+dotenv.config();
 
 // ===============================
 // 1. TRUST PROXY (jika deploy ke vercel / railway / nginx)

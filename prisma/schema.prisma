@@ -1,0 +1,183 @@
+// ================================
+// GENERATOR & DATASOURCE
+// ================================
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ================================
+// ENUMS
+// ================================
+enum Role {
+  USER
+  ADMIN
+}
+
+enum FormStatus {
+  DRAFT
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum RegStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum Stage {
+  SELEKSI_BERKAS
+  TES_AKADEMIK
+  WAWANCARA
+  TES_PSIKOTEST
+  HOME_VISIT
+  PENGUMUMAN_FINAL
+}
+
+enum StageStatus {
+  PENDING
+  PASSED
+  FAILED
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  SUCCESS
+  STATUS_UPDATE
+}
+
+// ================================
+// MODELS
+// ================================
+
+// USER (akun pendaftar & admin)
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  form            Form?
+  notifications   Notification[]
+  workflowStages  WorkflowStage[]
+  workflowHistory WorkflowHistory[]
+
+  // 🔥 Tambahkan ini agar relasi AdminNote valid
+  adminNotes AdminNote[]
+
+  resetToken        String?
+  resetTokenExpires DateTime?
+}
+
+// FORM UTAMA
+model Form {
+  id          String     @id @default(uuid())
+  userId      String     @unique
+  status      FormStatus @default(DRAFT)
+  submittedAt DateTime?
+  updatedAt   DateTime   @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id])
+  sections           FormSection[]
+  documents          Document[]
+  registrationStatus RegistrationStatus?
+  adminNotes         AdminNote[]
+}
+
+// FORM SECTIONS (7 bagian)
+model FormSection {
+  id            String   @id @default(uuid())
+  formId        String
+  sectionNumber Int
+  answers       Json
+  updatedAt     DateTime @updatedAt
+
+  form Form @relation(fields: [formId], references: [id])
+
+  @@unique([formId, sectionNumber])
+}
+
+// DOKUMEN UPLOAD
+model Document {
+  id            String   @id @default(uuid())
+  formId        String
+  sectionNumber Int
+  fieldName     String
+  fileUrl       String
+  uploadedAt    DateTime @default(now())
+
+  form Form @relation(fields: [formId], references: [id])
+}
+
+// STATUS REGISTRASI (pending / diterima / ditolak)
+model RegistrationStatus {
+  id        String    @id @default(uuid())
+  formId    String    @unique
+  status    RegStatus @default(PENDING)
+  note      String?
+  updatedAt DateTime  @updatedAt
+
+  form Form @relation(fields: [formId], references: [id])
+}
+
+// CATATAN ADMIN
+model AdminNote {
+  id        String   @id @default(uuid())
+  formId    String
+  adminId   String
+  note      String
+  createdAt DateTime @default(now())
+
+  form  Form @relation(fields: [formId], references: [id])
+  admin User @relation(fields: [adminId], references: [id])
+}
+
+// WORKFLOW 7 TAHAP PENDAFTARAN
+model WorkflowStage {
+  id        String      @id @default(uuid())
+  userId    String
+  stage     Stage
+  status    StageStatus @default(PENDING)
+  updatedAt DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, stage])
+}
+
+// RIWAYAT PERUBAHAN WORKFLOW
+model WorkflowHistory {
+  id        String       @id @default(uuid())
+  userId    String
+  stage     Stage
+  oldStatus StageStatus?
+  newStatus StageStatus
+  note      String?
+  changedBy String
+  timestamp DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// NOTIFIKASI UNTUK USER
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  sentBy    String?
+  message   String
+  type      NotificationType
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}

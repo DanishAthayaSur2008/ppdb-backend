@@ -13,5 +13,5 @@ const server = new Elysia()
     return { error: err?.message || "Internal Server Error" };
   });
 
-server.listen(3000);
-console.log("🚀 SPMB Backend Running at http://localhost:3000");
+server.listen(5000);
+console.log("🚀 SPMB Backend Running at http://localhost:5000");
